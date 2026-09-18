@@ -89,6 +89,51 @@
     panel.classList.remove('open');
     choosingStart = false; // cancel a pending "choose a starting point" prompt
   };
+
+  // ---------- Route bar: persistent (survives the bottom panel opening/
+  // closing) so start/destination and "you're picking a start point now"
+  // stay visible while the user is off tapping markers on the map. ----------
+  var routeBarEl = document.getElementById('routeBar');
+  var startLabelEl = document.getElementById('startLabel');
+  var endLabelEl = document.getElementById('endLabel');
+  var choosingStart = false;
+  var locatingStart = false;
+
+  function updateRouteBar() {
+    if (!state.end) { routeBarEl.classList.remove('open'); return; }
+    routeBarEl.classList.add('open');
+    endLabelEl.textContent = state.end.name;
+    if (state.start) {
+      startLabelEl.textContent = state.start.name;
+      startLabelEl.className = 'label';
+    } else if (locatingStart) {
+      startLabelEl.textContent = 'Locating…';
+      startLabelEl.className = 'label';
+    } else if (choosingStart) {
+      startLabelEl.textContent = 'Choose starting point — tap a marker on the map';
+      startLabelEl.className = 'label active';
+    } else {
+      startLabelEl.textContent = 'Choose starting point';
+      startLabelEl.className = 'label';
+    }
+  }
+
+  // Tap the start row to (re)pick it, same as Google Maps letting you tap
+  // either field - only once geolocation has settled, so a tap can't race
+  // against an in-flight getCurrentPosition() callback.
+  startLabelEl.onclick = function () {
+    if (state.end && !locatingStart) promptChooseStart();
+  };
+
+  document.getElementById('cancelRouteBtn').onclick = function () {
+    state.start = null;
+    state.end = null;
+    choosingStart = false;
+    locatingStart = false;
+    clearRouteLine();
+    updateRouteBar();
+    panel.classList.remove('open');
+  };
   function showPanel(html) {
     panelContent.innerHTML = html;
     panel.classList.add('open');
@@ -329,23 +374,18 @@
   }
 
   function renderRouteInfo(route, fromCache) {
+    updateRouteBar();
     var km = (route.distanceMeters / 1000).toFixed(1);
     var min = Math.round(route.durationSeconds / 60);
-    showPanel(
-      '<h3>' + state.start.name + ' → ' + state.end.name + '</h3>' +
-      '<p>' + km + ' km · ' + min + ' min' + (fromCache ? ' (cached, offline-ready)' : '') + '</p>' +
-      '<button id="clearRouteBtn">Clear route</button>'
-    );
-    document.getElementById('clearRouteBtn').onclick = function () {
-      state.start = null; state.end = null; clearRouteLine(); panel.classList.remove('open');
-    };
+    showPanel('<p>' + km + ' km · ' + min + ' min' + (fromCache ? ' (cached, offline-ready)' : '') + '</p>');
   }
 
   // Google-Maps-style flow: tapping a marker offers one primary action
   // (Navigate), not a pick-start/pick-end pair. Navigate auto-fills the tap
   // as the destination and tries geolocation for the start; only if that's
   // unavailable does it fall back to asking the user to choose one.
-  var choosingStart = false;
+  // (choosingStart/locatingStart/updateRouteBar are declared up near the
+  // routeBar DOM refs, close to the element they render into.)
 
   function selectFeature(feature, latlng) {
     feature.coords = latlng;
@@ -370,6 +410,7 @@
     if (choosingStart) {
       choosingStart = false;
       state.start = feature;
+      updateRouteBar();
       maybeRoute();
       return;
     }
@@ -378,21 +419,29 @@
 
   function startNavigationTo(feature) {
     state.end = feature;
-    if (state.start) { maybeRoute(); return; }
-    showPanel('<p>Finding your location…</p>');
+    // The persistent bar now carries destination/start - free the map to
+    // tap (picking a start point needs the map, not the bottom sheet).
+    panel.classList.remove('open');
+    if (state.start) { updateRouteBar(); maybeRoute(); return; }
+    locatingStart = true;
+    updateRouteBar();
     navigator.geolocation.getCurrentPosition(function (pos) {
+      locatingStart = false;
       state.start = {
         id: null, name: 'Current location',
         coords: [pos.coords.latitude, pos.coords.longitude],
       };
+      updateRouteBar();
       maybeRoute();
     }, function () {
+      locatingStart = false;
       promptChooseStart();
     });
   }
 
   function promptChooseStart() {
     choosingStart = true;
+    updateRouteBar(); // bar's start row switches to the active "tap a marker" state
     listFavorites().then(function (favs) {
       var favHtml = favs.length
         ? favs.map(function (f) {
@@ -401,7 +450,6 @@
           }).join('')
         : '<p>No favorites saved yet.</p>';
       showPanel(
-        '<h3>Choose a starting point</h3>' +
         '<p>Couldn\'t get your location. Tap a marker on the map, or pick a favorite:</p>' +
         favHtml
       );
@@ -414,6 +462,7 @@
             for (var j = 0; j < favs.length; j++) if (favs[j].id === id) fav = favs[j];
             choosingStart = false;
             state.start = fav;
+            updateRouteBar();
             maybeRoute();
           };
         })(buttons[i]);
@@ -456,6 +505,9 @@
       var latlng = [pos.coords.latitude, pos.coords.longitude];
       map.setView(latlng, 16);
       state.start = { id: null, name: 'Current location', coords: latlng };
+      choosingStart = false;
+      updateRouteBar();
+      if (state.end) maybeRoute();
     }, function (err) {
       showPanel('<p>Location failed: ' + err.message + '</p>');
     });

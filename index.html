@@ -23,6 +23,21 @@
     background: #1a73e8; color: white; border: none; border-radius: 18px;
     padding: 10px 20px; font-size: 15px; font-weight: bold;
   }
+  #routeBar {
+    position: absolute; top: 10px; left: 10px; right: 60px; z-index: 1000;
+    background: white; border-radius: 10px; box-shadow: 0 1px 6px rgba(0,0,0,.3);
+    padding: 8px 28px 8px 10px; display: none; font-size: 14px;
+  }
+  #routeBar.open { display: block; }
+  #routeBar .route-row { display: flex; align-items: center; margin: 3px 0; }
+  #routeBar .dot { width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; flex-shrink: 0; }
+  #routeBar .dot.start { background: #1a73e8; }
+  #routeBar .dot.end { background: #d93025; }
+  #routeBar .label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; }
+  #routeBar .label.active { color: #1a73e8; font-weight: bold; }
+  #cancelRouteBtn {
+    position: absolute; top: 6px; right: 6px; border: none; background: none; font-size: 16px;
+  }
   #toolbar { position: absolute; top: 10px; right: 10px; z-index: 1000; }
   #toolbar button {
     display: block; width: 40px; height: 40px; border-radius: 20px; border: none; background: white;
@@ -52,6 +67,12 @@
 <body>
 <div id="map"></div>
 <div id="toast"></div>
+
+<div id="routeBar">
+  <button id="cancelRouteBtn">✕</button>
+  <div class="route-row"><span class="dot start"></span><span class="label" id="startLabel"></span></div>
+  <div class="route-row"><span class="dot end"></span><span class="label" id="endLabel"></span></div>
+</div>
 
 <div id="toolbar">
   <button id="locateBtn" title="My location">📍</button>
