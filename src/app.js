@@ -250,6 +250,17 @@
     return s.replace(/["\\.*+?^${}()|[\]]/g, '\\$&');
   }
 
+  // A pin (not a small dot) so search hits stand out from the always-on
+  // Youbike/transit/bus layers - emoji + divIcon needs no image assets (no
+  // extra network request, and no risk of Leaflet's default marker icon
+  // silently failing to resolve its image path from a plain CDN include).
+  var searchPinIcon = L.divIcon({
+    html: '<div class="search-pin-emoji">📍</div>',
+    className: 'search-pin-icon',
+    iconSize: [26, 32],
+    iconAnchor: [13, 30],
+  });
+
   function runPoiSearch(query) {
     var trimmed = query.trim();
     if (!trimmed) return;
@@ -263,24 +274,47 @@
     console.log('POI search: "' + trimmed + '" in current view');
     runOverpass(q).then(function (data) {
       poiLayer.clearLayers();
-      var shown = 0;
+      var results = [];
       data.elements.forEach(function (el) {
         if (!el.tags || !el.tags.name) return;
-        shown++;
-        var marker = L.circleMarker([el.lat, el.lon], {
-          radius: 5, color: '#fff', weight: 1, fillColor: '#1971c2', fillOpacity: 0.9,
-        }).addTo(poiLayer);
-        marker.on('click', function () {
-          handleMarkerTap({
-            id: 'poi-' + el.id,
-            name: el.tags.name,
-            extra: el.tags.amenity || el.tags.shop || 'poi',
-          }, [el.lat, el.lon]);
-        });
+        var feature = {
+          id: 'poi-' + el.id,
+          name: el.tags.name,
+          extra: el.tags.amenity || el.tags.shop || 'poi',
+        };
+        var latlng = [el.lat, el.lon];
+        results.push({ feature: feature, latlng: latlng });
+        var marker = L.marker(latlng, { icon: searchPinIcon }).addTo(poiLayer);
+        marker.on('click', function () { handleMarkerTap(feature, latlng); });
       });
-      console.log('POI search: ' + shown + ' result(s) for "' + trimmed + '"');
-      showToast(shown === 0 ? 'No results for "' + trimmed + '"' : shown + ' result' + (shown === 1 ? '' : 's') + ' found');
+      console.log('POI search: ' + results.length + ' result(s) for "' + trimmed + '"');
+      renderSearchResults(trimmed, results);
     }).catch(function (err) { console.warn('POI search failed', err); showToast('Search failed: ' + err.message); });
+  }
+
+  function renderSearchResults(query, results) {
+    if (results.length === 0) {
+      showPanel('<p>No results for "' + query + '".</p>');
+      return;
+    }
+    var html = '<h3>' + results.length + ' result' + (results.length === 1 ? '' : 's') + ' for "' + query + '"</h3>' +
+      results.map(function (r, i) {
+        return '<div class="result-item" data-result-index="' + i + '">' +
+          '<div>' + r.feature.name + '</div>' +
+          '<div class="result-sub">' + r.feature.extra + '</div>' +
+          '</div>';
+      }).join('');
+    showPanel(html);
+    var rows = panelContent.querySelectorAll('[data-result-index]');
+    for (var i = 0; i < rows.length; i++) {
+      (function (row) {
+        row.onclick = function () {
+          var r = results[Number(row.getAttribute('data-result-index'))];
+          map.panTo(r.latlng); // bring the tapped result's pin into view
+          handleMarkerTap(r.feature, r.latlng);
+        };
+      })(rows[i]);
+    }
   }
 
   var searchBarEl = document.getElementById('searchBar');
