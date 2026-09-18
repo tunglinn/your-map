@@ -10,6 +10,9 @@
   var YOUBIKE_URL = 'https://tcgbusfs.blob.core.windows.net/dotapp/youbike/v2/youbike_immediate.json';
   var OVERPASS_URL = 'https://overpass-api.de/api/interpreter';
   var POI_MIN_ZOOM = 16;
+  // Fixed bbox covering the Taipei Metro + New Taipei service area (data we
+  // gather is Taipei-scoped even though the basemap itself is worldwide).
+  var TRANSIT_BBOX = [24.95, 121.35, 25.25, 121.75];
   // ponytail: public OSRM demo, driving profile — placeholder to get routing
   // working end-to-end. No bike-safety weighting yet. Swap once the self-hosted
   // Taiwan OSRM (infra/setup-osrm.sh) is up: change these two constants only.
@@ -25,6 +28,7 @@
 
   var poiLayer = L.layerGroup().addTo(map);
   var youbikeLayer = L.layerGroup().addTo(map);
+  var transitLayer = L.layerGroup().addTo(map);
   var routeLayer = null;
 
   var panel = document.getElementById('panel');
@@ -102,18 +106,17 @@
       .catch(function (err) { console.warn('Youbike load failed', err); });
   }
 
-  // ---------- POIs ----------
-  function overpassQuery(bbox) {
-    var q = '[out:json][timeout:15];(' +
-      'node["amenity"](' + bbox.join(',') + ');' +
-      'node["shop"](' + bbox.join(',') + ');' +
-      ');out body 100;';
+  // ---------- Overpass (shared by POIs/bus stops and rail/MRT stations) ----------
+  function runOverpass(q) {
     return fetch(OVERPASS_URL, { method: 'POST', body: 'data=' + encodeURIComponent(q) })
       .then(function (res) {
         if (!res.ok) throw new Error('Overpass ' + res.status);
         return res.json();
       });
   }
+
+  // ---------- POIs + bus stops (viewport-scoped, only when zoomed in) ----------
+  var POI_COLORS = { bus_stop: '#0c8599', default: '#1971c2' };
   var poiTimer = null;
   function refreshPois() {
     clearTimeout(poiTimer);
@@ -121,18 +124,26 @@
       if (map.getZoom() < POI_MIN_ZOOM) { poiLayer.clearLayers(); return; }
       var b = map.getBounds();
       var bbox = [b.getSouth(), b.getWest(), b.getNorth(), b.getEast()];
-      overpassQuery(bbox).then(function (data) {
+      var q = '[out:json][timeout:15];(' +
+        'node["amenity"](' + bbox.join(',') + ');' +
+        'node["shop"](' + bbox.join(',') + ');' +
+        'node["highway"="bus_stop"](' + bbox.join(',') + ');' +
+        ');out body 150;';
+      runOverpass(q).then(function (data) {
         poiLayer.clearLayers();
         data.elements.forEach(function (el) {
           if (!el.tags || !el.tags.name) return;
+          var isBusStop = el.tags.highway === 'bus_stop';
           var marker = L.circleMarker([el.lat, el.lon], {
-            radius: 4, color: '#fff', weight: 1, fillColor: '#1971c2', fillOpacity: 0.9,
+            radius: 4, color: '#fff', weight: 1,
+            fillColor: isBusStop ? POI_COLORS.bus_stop : POI_COLORS.default,
+            fillOpacity: 0.9,
           }).addTo(poiLayer);
           marker.on('click', function () {
             selectFeature({
               id: 'poi-' + el.id,
               name: el.tags.name,
-              extra: el.tags.amenity || el.tags.shop || 'poi',
+              extra: isBusStop ? 'Bus stop' : (el.tags.amenity || el.tags.shop || 'poi'),
             }, [el.lat, el.lon]);
           });
         });
@@ -140,6 +151,30 @@
     }, 600);
   }
   map.on('moveend', refreshPois);
+
+  // ---------- Rail / MRT stations (always on — small dataset, whole metro area) ----------
+  function loadTransitStations() {
+    var q = '[out:json][timeout:20];(' +
+      'node["railway"="station"](' + TRANSIT_BBOX.join(',') + ');' +
+      'node["railway"="halt"](' + TRANSIT_BBOX.join(',') + ');' +
+      ');out body 300;';
+    runOverpass(q).then(function (data) {
+      transitLayer.clearLayers();
+      data.elements.forEach(function (el) {
+        if (!el.tags || !el.tags.name) return;
+        var marker = L.circleMarker([el.lat, el.lon], {
+          radius: 5, color: '#fff', weight: 1, fillColor: '#862e9c', fillOpacity: 0.9,
+        }).addTo(transitLayer);
+        marker.on('click', function () {
+          selectFeature({
+            id: 'rail-' + el.id,
+            name: el.tags.name,
+            extra: el.tags.network || (el.tags.station === 'subway' ? 'MRT station' : 'Rail station'),
+          }, [el.lat, el.lon]);
+        });
+      });
+    }).catch(function (err) { console.warn('Transit load failed', err); });
+  }
 
   // ---------- Routing ----------
   function getRoute(fromLatLng, toLatLng) {
@@ -256,4 +291,5 @@
   };
 
   loadYoubike();
+  loadTransitStations();
 })();

@@ -30,7 +30,8 @@ printed URL. Geolocation requires HTTPS or `localhost`.
 
 - Worldwide basemap: raster tiles from [CARTO](https://carto.com/basemaps) via Leaflet (free, no key, no self-hosting, no WebGL).
 - Youbike stations (live, Taipei) — official city feed, fetched directly (CORS-enabled), refreshed on load.
-- POIs (amenity/shop) via the public Overpass API, refreshed on map move, only above zoom 16 to keep marker count low on an older phone.
+- POIs (amenity/shop) and bus stops via the public Overpass API, refreshed on map move, only above zoom 16 to keep marker count low on an older phone.
+- Rail/MRT stations (Taipei Metro + TRA) — always shown, no zoom gate, since it's a small fixed dataset (~150 stations) for the whole metro area, pulled from the same Overpass API (no GTFS parsing/hosting needed just to show station locations).
 - Tap a marker → set as route start/end, or save to favorites (stored in IndexedDB, on-device only).
 - Routing via OSRM. **Currently points at the public demo server with the `driving` profile as a placeholder** (see `src/app.js`) — it gets routing working end-to-end today, but doesn't know about bike safety and isn't meant to stay pointed there.
 - Favorite-to-favorite routes are cached in IndexedDB after the first lookup, so navigating between two saved favorites works offline afterward.
