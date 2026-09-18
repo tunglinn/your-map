@@ -49,7 +49,13 @@
 
   var TAIPEI_CENTER = [25.0330, 121.5654]; // Leaflet uses [lat, lon]
   var YOUBIKE_URL = 'https://tcgbusfs.blob.core.windows.net/dotapp/youbike/v2/youbike_immediate.json';
-  var OVERPASS_URL = 'https://overpass-api.de/api/interpreter';
+  // ponytail: calling overpass-api.de directly from the browser got HTTP 406
+  // with no CORS header (confirmed via real browser devtools, not just this
+  // project's sandbox) - likely origin-based blocking somewhere in front of
+  // it. Routed through a Cloudflare Worker (worker/overpass-proxy.js) that
+  // fetches Overpass server-to-server instead, where CORS doesn't apply.
+  // PLACEHOLDER until deployed - see worker/overpass-proxy.js for how.
+  var OVERPASS_URL = 'https://your-map-overpass.PLACEHOLDER.workers.dev';
   var POI_MIN_ZOOM = 16;
   // Fixed bbox covering the Taipei Metro + New Taipei service area (data we
   // gather is Taipei-scoped even though the basemap itself is worldwide).
@@ -169,15 +175,8 @@
       .catch(function (err) { console.warn('Youbike load failed', err); showToast('Youbike load failed: ' + err.message); });
   }
 
-  // ---------- Overpass (shared by POIs/bus stops and rail/MRT stations) ----------
+  // ---------- Overpass, via our Worker proxy (shared by POIs/bus stops and rail/MRT stations) ----------
   function runOverpass(q) {
-    // GET with ?data=, not POST: this is what overpass-turbo.eu (the
-    // standard browser-based Overpass client) uses, and it's proven to work
-    // cross-origin from a browser. The earlier POST attempt (with an
-    // explicit application/x-www-form-urlencoded header) still failed with
-    // an opaque network-level error, which fetch() reports identically for
-    // both a real network failure and a response CORS blocks from being
-    // read - GET sidesteps whatever that was rather than guessing further.
     return fetch(OVERPASS_URL + '?data=' + encodeURIComponent(q))
       .then(function (res) {
         if (!res.ok) throw new Error('Overpass ' + res.status);

@@ -26,12 +26,25 @@ printed URL. Geolocation requires HTTPS or `localhost`.
 4. Deploy. Every push to `main` auto-deploys — no wrangler/CLI login needed.
 5. On your iPhone, open the Pages URL in Safari → Share → **Add to Home Screen**.
 
+## Deploy the Overpass proxy Worker (needed for POIs/bus stops/transit to work)
+
+Calling `overpass-api.de` directly from the browser gets blocked (HTTP 406,
+no CORS header — confirmed via real browser devtools). `worker/overpass-proxy.js`
+fetches Overpass server-to-server instead, where CORS doesn't apply, and adds
+a short edge cache along the way.
+
+1. Cloudflare dashboard → Workers & Pages → Create → **Worker**.
+2. Open the Quick Edit code editor, replace its contents with
+   `worker/overpass-proxy.js`, Deploy.
+3. Tell Claude the resulting `*.workers.dev` URL — `OVERPASS_URL` in
+   `src/app.js` is currently a placeholder pointing nowhere real.
+
 ## What's implemented
 
 - Worldwide basemap: raster tiles from [OpenStreetMap's own tile server](https://tile.openstreetmap.org) via Leaflet (free, no key, no self-hosting, no WebGL). CARTO's free tiles used to work here too but now require a signed-up API key — switched off that.
 - Youbike stations (live, Taipei) — official city feed, fetched directly (CORS-enabled), refreshed on load.
-- POIs (amenity/shop) and bus stops via the public Overpass API, refreshed on map move, only above zoom 16 to keep marker count low on an older phone.
-- Rail/MRT stations (Taipei Metro + TRA) — always shown, no zoom gate, since it's a small fixed dataset (~150 stations) for the whole metro area, pulled from the same Overpass API (no GTFS parsing/hosting needed just to show station locations).
+- POIs (amenity/shop) and bus stops via Overpass (through the Worker proxy — see above), refreshed on map move, only above zoom 16 to keep marker count low on an older phone.
+- Rail/MRT stations (Taipei Metro + TRA) — always shown, no zoom gate, since it's a small fixed dataset (~150 stations) for the whole metro area, pulled from the same Overpass proxy (no GTFS parsing/hosting needed just to show station locations).
 - Tap a marker → set as route start/end, or save to favorites (stored in IndexedDB, on-device only).
 - Routing via OSRM. **Currently points at the public demo server with the `driving` profile as a placeholder** (see `src/app.js`) — it gets routing working end-to-end today, but doesn't know about bike safety and isn't meant to stay pointed there.
 - Favorite-to-favorite routes are cached in IndexedDB after the first lookup, so navigating between two saved favorites works offline afterward.
