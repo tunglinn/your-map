@@ -46,21 +46,26 @@ sudo docker run -t -v "$WORKDIR:/data" "$IMAGE" osrm-extract -p /data/profiles/b
 sudo docker run -t -v "$WORKDIR:/data" "$IMAGE" osrm-partition /data/taiwan-latest.osrm
 sudo docker run -t -v "$WORKDIR:/data" "$IMAGE" osrm-customize /data/taiwan-latest.osrm
 
-sudo docker run -d --name osrm --restart unless-stopped -p 5000:5000 \
+# Bind to loopback only: the box's public IP should never serve routing
+# directly. The Cloudflare Tunnel (same machine) reaches it via localhost.
+sudo docker run -d --name osrm --restart unless-stopped -p 127.0.0.1:5000:5000 \
   -v "$WORKDIR:/data" "$IMAGE" osrm-routed --algorithm mld /data/taiwan-latest.osrm
 
-echo "OSRM running on localhost:5000. Test with:"
+echo "OSRM running on localhost:5000 (not exposed publicly yet). Test with:"
 echo "  curl 'http://localhost:5000/route/v1/bike/121.53,25.03;121.57,25.05'"
 
 cat <<'EOF'
 
---- Manual step: expose via Cloudflare Tunnel (no open ports needed) ---
-  curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o cloudflared
-  chmod +x cloudflared && sudo mv cloudflared /usr/local/bin/
-  cloudflared tunnel login                     # opens a browser auth link
-  cloudflared tunnel create osrm
-  cloudflared tunnel route dns osrm osrm.yourdomain.com
-  cloudflared tunnel run --url http://localhost:5000 osrm
-(then set that last line up as a systemd service so it survives reboots)
+--- Manual step: expose via Cloudflare Tunnel (dashboard-driven, no config file to hand-write) ---
+1. Zero Trust dashboard (one.dash.cloudflare.com) -> Networks -> Tunnels ->
+   Create a tunnel -> Cloudflared -> name it "osrm".
+2. Run the install commands it shows you for this OS, ending in:
+     sudo cloudflared service install <TOKEN>
+   (this registers it as a systemd service - survives reboots automatically)
+3. On that tunnel, add a Public Hostname: your subdomain + domain, Service
+   type HTTP, URL "localhost:5000".
+4. From ANOTHER machine (not the droplet): curl https://<your-hostname>/route/v1/bike/121.53,25.03;121.57,25.05
+   Once that works, the docker run above already has the public port closed
+   (127.0.0.1-only bind), so no DigitalOcean firewall rule is needed.
 ---------------------------------------
 EOF
