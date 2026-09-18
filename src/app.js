@@ -87,6 +87,7 @@
   var panelContent = document.getElementById('panelContent');
   document.getElementById('closePanel').onclick = function () {
     panel.classList.remove('open');
+    choosingStart = false; // cancel a pending "choose a starting point" prompt
   };
   function showPanel(html) {
     panelContent.innerHTML = html;
@@ -162,7 +163,7 @@
             radius: 5, color: '#fff', weight: 1, fillColor: color, fillOpacity: 0.9,
           }).addTo(youbikeLayer);
           marker.on('click', function () {
-            selectFeature({
+            handleMarkerTap({
               id: 'youbike-' + s.sno,
               name: s.sna.replace(/^YouBike2\.0_/, ''),
               extra: '🚲 ' + s.available_rent_bikes + ' bikes · 🅿️ ' + s.available_return_bikes + ' docks',
@@ -217,7 +218,7 @@
             radius: 4, color: '#fff', weight: 1, fillColor: '#1971c2', fillOpacity: 0.9,
           }).addTo(poiLayer);
           marker.on('click', function () {
-            selectFeature({
+            handleMarkerTap({
               id: 'poi-' + el.id,
               name: el.tags.name,
               extra: el.tags.amenity || el.tags.shop || 'poi',
@@ -251,7 +252,7 @@
       radius: markerRadius, color: '#fff', weight: 1, fillColor: color, fillOpacity: 0.9,
     }).addTo(layerGroup);
     marker.on('click', function () {
-      selectFeature({ id: rec[0], name: rec[3], extra: rec[4] }, [rec[1], rec[2]]);
+      handleMarkerTap({ id: rec[0], name: rec[3], extra: rec[4] }, [rec[1], rec[2]]);
     });
   }
 
@@ -340,22 +341,84 @@
     };
   }
 
+  // Google-Maps-style flow: tapping a marker offers one primary action
+  // (Navigate), not a pick-start/pick-end pair. Navigate auto-fills the tap
+  // as the destination and tries geolocation for the start; only if that's
+  // unavailable does it fall back to asking the user to choose one.
+  var choosingStart = false;
+
   function selectFeature(feature, latlng) {
     feature.coords = latlng;
     showPanel(
       '<h3>' + feature.name + '</h3>' +
       (feature.extra ? '<p>' + feature.extra + '</p>' : '') +
-      '<button id="setStart">Set as start</button>' +
-      '<button id="setEnd">Set as end</button>' +
+      '<button id="navigateBtn" class="btn-primary">Navigate</button>' +
       '<button id="saveFav">★ Save</button>'
     );
-    document.getElementById('setStart').onclick = function () { state.start = feature; maybeRoute(); };
-    document.getElementById('setEnd').onclick = function () { state.end = feature; maybeRoute(); };
+    document.getElementById('navigateBtn').onclick = function () { startNavigationTo(feature); };
     document.getElementById('saveFav').onclick = function () {
       addFavorite(feature).then(function () {
         showPanel('<p>Saved "' + feature.name + '" to favorites.</p>');
       });
     };
+  }
+
+  // Any marker tap while choosingStart is active picks the start point
+  // instead of opening the normal info panel - see promptChooseStart.
+  function handleMarkerTap(feature, latlng) {
+    feature.coords = latlng;
+    if (choosingStart) {
+      choosingStart = false;
+      state.start = feature;
+      maybeRoute();
+      return;
+    }
+    selectFeature(feature, latlng);
+  }
+
+  function startNavigationTo(feature) {
+    state.end = feature;
+    if (state.start) { maybeRoute(); return; }
+    showPanel('<p>Finding your location…</p>');
+    navigator.geolocation.getCurrentPosition(function (pos) {
+      state.start = {
+        id: null, name: 'Current location',
+        coords: [pos.coords.latitude, pos.coords.longitude],
+      };
+      maybeRoute();
+    }, function () {
+      promptChooseStart();
+    });
+  }
+
+  function promptChooseStart() {
+    choosingStart = true;
+    listFavorites().then(function (favs) {
+      var favHtml = favs.length
+        ? favs.map(function (f) {
+            return '<div class="fav-item">' + f.name +
+              ' <button data-start-id="' + f.id + '">Use as start</button></div>';
+          }).join('')
+        : '<p>No favorites saved yet.</p>';
+      showPanel(
+        '<h3>Choose a starting point</h3>' +
+        '<p>Couldn\'t get your location. Tap a marker on the map, or pick a favorite:</p>' +
+        favHtml
+      );
+      var buttons = panelContent.querySelectorAll('button[data-start-id]');
+      for (var i = 0; i < buttons.length; i++) {
+        (function (btn) {
+          btn.onclick = function () {
+            var id = btn.getAttribute('data-start-id');
+            var fav = null;
+            for (var j = 0; j < favs.length; j++) if (favs[j].id === id) fav = favs[j];
+            choosingStart = false;
+            state.start = fav;
+            maybeRoute();
+          };
+        })(buttons[i]);
+      }
+    });
   }
 
   function renderFavorites() {
