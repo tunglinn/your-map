@@ -22,6 +22,9 @@
     for (var i = 0; i < args.length; i++) {
       var a = args[i];
       if (typeof a === 'string') { parts.push(a); continue; }
+      // Error objects JSON.stringify to "{}" (message/stack aren't
+      // enumerable) - pull the useful bits out explicitly instead.
+      if (a instanceof Error) { parts.push(a.name + ': ' + a.message); continue; }
       try { parts.push(JSON.stringify(a)); } catch (e) { parts.push(String(a)); }
     }
     var stamp = new Date().toISOString().substr(11, 8);
@@ -168,15 +171,14 @@
 
   // ---------- Overpass (shared by POIs/bus stops and rail/MRT stations) ----------
   function runOverpass(q) {
-    // fetch() defaults a raw string body to Content-Type: text/plain, but
-    // Overpass parses "data=<query>" as a form field and needs
-    // application/x-www-form-urlencoded to see it at all - without this
-    // header the server can silently treat the query as empty.
-    return fetch(OVERPASS_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: 'data=' + encodeURIComponent(q),
-    })
+    // GET with ?data=, not POST: this is what overpass-turbo.eu (the
+    // standard browser-based Overpass client) uses, and it's proven to work
+    // cross-origin from a browser. The earlier POST attempt (with an
+    // explicit application/x-www-form-urlencoded header) still failed with
+    // an opaque network-level error, which fetch() reports identically for
+    // both a real network failure and a response CORS blocks from being
+    // read - GET sidesteps whatever that was rather than guessing further.
+    return fetch(OVERPASS_URL + '?data=' + encodeURIComponent(q))
       .then(function (res) {
         if (!res.ok) throw new Error('Overpass ' + res.status);
         return res.json();
