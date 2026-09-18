@@ -210,30 +210,49 @@
   }
 
   // ---------- Youbike ----------
+  // Below DETAIL_ZOOM, ambient layers (Youbike/metro) draw as small plain
+  // dots instead of full icon badges - calmer when zoomed out over a wide
+  // area, still shows up close. Bus stops stay on their existing all-or-
+  // nothing gate (BUS_STOP_MIN_ZOOM) rather than adding a dot tier too -
+  // ~9,400 of them even as tiny dots is still real DOM/render cost at a
+  // wide zoom, unlike Youbike (~1,775) or metro (~180).
+  var DETAIL_ZOOM = 16;
+
+  function smallDot(latlng, color) {
+    return L.circleMarker(latlng, { radius: 3, color: '#fff', weight: 1, fillColor: color, fillOpacity: 0.9 });
+  }
+
+  var youbikeStations = [];
+  function renderYoubike() {
+    youbikeLayer.clearLayers();
+    var atDetailZoom = map.getZoom() >= DETAIL_ZOOM;
+    youbikeStations.forEach(function (s) {
+      // Availability signal either way: badge background at detail zoom,
+      // dot fill color when zoomed out.
+      var color = s.available_rent_bikes >= 8 ? '#81b98f' : s.available_rent_bikes >= 3 ? '#d9ae6e' : '#c98a7d';
+      var latlng = [s.latitude, s.longitude];
+      var marker = atDetailZoom
+        ? L.marker(latlng, { icon: makeBadgeIcon('🚲', color) })
+        : smallDot(latlng, color);
+      marker.addTo(youbikeLayer);
+      marker.on('click', function () {
+        handleMarkerTap({
+          id: 'youbike-' + s.sno,
+          name: s.sna.replace(/^YouBike2\.0_/, ''),
+          extra: '🚲 ' + s.available_rent_bikes + ' bikes · 🅿️ ' + s.available_return_bikes + ' docks',
+        }, latlng);
+      });
+    });
+  }
+
   function loadYoubike() {
     console.log('Youbike: fetching ' + YOUBIKE_URL);
     fetch(YOUBIKE_URL)
       .then(function (res) { return res.json(); })
       .then(function (stations) {
-        youbikeLayer.clearLayers();
-        var shown = 0;
-        stations.forEach(function (s) {
-          if (s.act !== '1') return;
-          shown++;
-          // Badge color IS the availability signal (green/amber/red), same
-          // thresholds as before - just moved from a plain dot to the icon's
-          // background since emoji glyphs can't be recolored via CSS.
-          var color = s.available_rent_bikes >= 8 ? '#81b98f' : s.available_rent_bikes >= 3 ? '#d9ae6e' : '#c98a7d';
-          var marker = L.marker([s.latitude, s.longitude], { icon: makeBadgeIcon('🚲', color) }).addTo(youbikeLayer);
-          marker.on('click', function () {
-            handleMarkerTap({
-              id: 'youbike-' + s.sno,
-              name: s.sna.replace(/^YouBike2\.0_/, ''),
-              extra: '🚲 ' + s.available_rent_bikes + ' bikes · 🅿️ ' + s.available_return_bikes + ' docks',
-            }, [s.latitude, s.longitude]);
-          });
-        });
-        console.log('Youbike: loaded ' + shown + ' active stations (of ' + stations.length + ' total)');
+        youbikeStations = stations.filter(function (s) { return s.act === '1'; });
+        console.log('Youbike: loaded ' + youbikeStations.length + ' active stations (of ' + stations.length + ' total)');
+        renderYoubike();
       })
       .catch(function (err) { console.warn('Youbike load failed', err); showToast('Youbike load failed: ' + err.message); });
   }
@@ -357,11 +376,22 @@
   var busStopIcon = makeBadgeIcon('🚏', '#6fa3ac');
   var metroIcon = makeBadgeIcon('🚇', '#9c7aa8');
 
-  function renderStaticMarker(rec, layerGroup, icon) {
-    var marker = L.marker([rec[1], rec[2]], { icon: icon }).addTo(layerGroup);
+  // dotColor only actually gets used by callers that don't already gate
+  // visibility by zoom (metro) - bus stops stay hidden below their zoom
+  // threshold, so their caller never reaches the dot branch at all.
+  function renderStaticMarker(rec, layerGroup, icon, dotColor) {
+    var latlng = [rec[1], rec[2]];
+    var marker = map.getZoom() >= DETAIL_ZOOM ? L.marker(latlng, { icon: icon }) : smallDot(latlng, dotColor);
+    marker.addTo(layerGroup);
     marker.on('click', function () {
-      handleMarkerTap({ id: rec[0], name: rec[3], extra: rec[4] }, [rec[1], rec[2]]);
+      handleMarkerTap({ id: rec[0], name: rec[3], extra: rec[4] }, latlng);
     });
+  }
+
+  var transitData = [];
+  function renderTransit() {
+    transitLayer.clearLayers();
+    transitData.forEach(function (rec) { renderStaticMarker(rec, transitLayer, metroIcon, '#9c7aa8'); });
   }
 
   var busStopsData = [];
@@ -375,17 +405,22 @@
       var lat = rec[1], lon = rec[2];
       if (lat < south || lat > north || lon < west || lon > east) return;
       shown++;
-      renderStaticMarker(rec, busLayer, busStopIcon);
+      renderStaticMarker(rec, busLayer, busStopIcon, '#6fa3ac');
     });
     console.log('Bus stops: showing ' + shown + ' of ' + busStopsData.length + ' in view');
   }
 
-  // Bus stops still refresh on pan/zoom - it's a local array filter, no
-  // network call, so it doesn't contribute to the Overpass load problem.
+  // Bus stops refresh on every pan/zoom (viewport-filtered - which stops
+  // are in view actually changes). Youbike/metro don't viewport-filter
+  // (small enough datasets to always show all of them), so re-rendering on
+  // a pure pan would be wasted work - only the zoom level affects what they
+  // look like, so they only need to redraw on zoomend.
   map.on('moveend', refreshVisibleBusStops);
+  map.on('zoomend', function () { renderYoubike(); renderTransit(); });
 
   loadStaticLayer('data/transit-stations.json', 'Transit').then(function (records) {
-    records.forEach(function (rec) { renderStaticMarker(rec, transitLayer, metroIcon); });
+    transitData = records;
+    renderTransit();
   });
   loadStaticLayer('data/bus-stops.json', 'Bus stops').then(function (records) {
     busStopsData = records;
