@@ -200,6 +200,19 @@
   // Emoji-on-a-colored-circle marker, same reasoning as the search pin: no
   // image asset request, no risk of a default icon's path failing to
   // resolve. One icon instance can be reused across many L.marker calls.
+  // Interchange stations (2+ lines) get equal vertical color stripes
+  // instead of one color - a solid linear-gradient value works anywhere a
+  // plain CSS background color would, so makeBadgeIcon doesn't need to
+  // know the difference.
+  function stripesBackground(colors) {
+    if (colors.length === 1) return colors[0];
+    var stop = 100 / colors.length;
+    var stops = colors.map(function (c, i) {
+      return c + ' ' + (i * stop) + '%, ' + c + ' ' + ((i + 1) * stop) + '%';
+    }).join(', ');
+    return 'linear-gradient(to right, ' + stops + ')';
+  }
+
   function makeBadgeIcon(emoji, bgColor, size) {
     size = size || 20;
     var fontSize = Math.round(size * 0.55);
@@ -364,7 +377,6 @@
   }
 
   var busStopIcon = makeBadgeIcon('🚏', '#6fa3ac');
-  var metroIcon = makeBadgeIcon('🚇', '#9c7aa8', 28);
 
   function renderStaticMarker(rec, layerGroup, icon) {
     var latlng = [rec[1], rec[2]];
@@ -380,7 +392,12 @@
   var transitData = [];
   function renderTransit() {
     transitLayer.clearLayers();
-    transitData.forEach(function (rec) { renderStaticMarker(rec, transitLayer, metroIcon); });
+    transitData.forEach(function (rec) {
+      // rec[5]: array of that station's line colors (data/README.md) -
+      // one color = solid badge, 2+ = vertical stripes (interchange).
+      var icon = makeBadgeIcon('🚇', stripesBackground(rec[5]), 28);
+      renderStaticMarker(rec, transitLayer, icon);
+    });
   }
 
   var busStopsData = [];
