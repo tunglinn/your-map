@@ -200,41 +200,31 @@
   // Emoji-on-a-colored-circle marker, same reasoning as the search pin: no
   // image asset request, no risk of a default icon's path failing to
   // resolve. One icon instance can be reused across many L.marker calls.
-  function makeBadgeIcon(emoji, bgColor) {
+  function makeBadgeIcon(emoji, bgColor, size) {
+    size = size || 20;
+    var fontSize = Math.round(size * 0.55);
     return L.divIcon({
-      html: '<div class="marker-badge" style="background:' + bgColor + ';">' + emoji + '</div>',
+      html: '<div class="marker-badge" style="background:' + bgColor + ';width:' + size + 'px;height:' + size + 'px;font-size:' + fontSize + 'px;">' + emoji + '</div>',
       className: 'marker-badge-icon',
-      iconSize: [20, 20],
-      iconAnchor: [10, 10],
+      iconSize: [size, size],
+      iconAnchor: [size / 2, size / 2],
     });
   }
 
   // ---------- Youbike ----------
-  // Below DETAIL_ZOOM, ambient layers (Youbike/metro) draw as small plain
-  // dots instead of full icon badges - calmer when zoomed out over a wide
-  // area, still shows up close. Bus stops stay on their existing all-or-
-  // nothing gate (BUS_STOP_MIN_ZOOM) rather than adding a dot tier too -
-  // ~9,400 of them even as tiny dots is still real DOM/render cost at a
-  // wide zoom, unlike Youbike (~1,775) or metro (~180).
+  // Hidden entirely below DETAIL_ZOOM rather than shrinking to a dot -
+  // simpler, and matches how bus stops already behave (BUS_STOP_MIN_ZOOM).
+  // Metro stays always-visible regardless of zoom (small dataset, ~180).
   var DETAIL_ZOOM = 16;
-
-  function smallDot(latlng, color) {
-    return L.circleMarker(latlng, { radius: 3, color: '#fff', weight: 1, fillColor: color, fillOpacity: 0.9 });
-  }
 
   var youbikeStations = [];
   function renderYoubike() {
     youbikeLayer.clearLayers();
-    var atDetailZoom = map.getZoom() >= DETAIL_ZOOM;
+    if (map.getZoom() < DETAIL_ZOOM) return;
     youbikeStations.forEach(function (s) {
-      // Availability signal either way: badge background at detail zoom,
-      // dot fill color when zoomed out.
       var color = s.available_rent_bikes >= 8 ? '#81b98f' : s.available_rent_bikes >= 3 ? '#d9ae6e' : '#c98a7d';
       var latlng = [s.latitude, s.longitude];
-      var marker = atDetailZoom
-        ? L.marker(latlng, { icon: makeBadgeIcon('🚲', color) })
-        : smallDot(latlng, color);
-      marker.addTo(youbikeLayer);
+      var marker = L.marker(latlng, { icon: makeBadgeIcon('🚲', color) }).addTo(youbikeLayer);
       marker.on('click', function () {
         handleMarkerTap({
           id: 'youbike-' + s.sno,
@@ -374,24 +364,23 @@
   }
 
   var busStopIcon = makeBadgeIcon('🚏', '#6fa3ac');
-  var metroIcon = makeBadgeIcon('🚇', '#9c7aa8');
+  var metroIcon = makeBadgeIcon('🚇', '#9c7aa8', 28);
 
-  // dotColor only actually gets used by callers that don't already gate
-  // visibility by zoom (metro) - bus stops stay hidden below their zoom
-  // threshold, so their caller never reaches the dot branch at all.
-  function renderStaticMarker(rec, layerGroup, icon, dotColor) {
+  function renderStaticMarker(rec, layerGroup, icon) {
     var latlng = [rec[1], rec[2]];
-    var marker = map.getZoom() >= DETAIL_ZOOM ? L.marker(latlng, { icon: icon }) : smallDot(latlng, dotColor);
-    marker.addTo(layerGroup);
+    var marker = L.marker(latlng, { icon: icon }).addTo(layerGroup);
     marker.on('click', function () {
       handleMarkerTap({ id: rec[0], name: rec[3], extra: rec[4] }, latlng);
     });
   }
 
+  // Metro is always shown regardless of zoom (small dataset, ~180 stations)
+  // and bigger than the other badges - it's meant to be a prominent
+  // landmark layer, not an ambient one like bus stops.
   var transitData = [];
   function renderTransit() {
     transitLayer.clearLayers();
-    transitData.forEach(function (rec) { renderStaticMarker(rec, transitLayer, metroIcon, '#9c7aa8'); });
+    transitData.forEach(function (rec) { renderStaticMarker(rec, transitLayer, metroIcon); });
   }
 
   var busStopsData = [];
@@ -405,18 +394,18 @@
       var lat = rec[1], lon = rec[2];
       if (lat < south || lat > north || lon < west || lon > east) return;
       shown++;
-      renderStaticMarker(rec, busLayer, busStopIcon, '#6fa3ac');
+      renderStaticMarker(rec, busLayer, busStopIcon);
     });
     console.log('Bus stops: showing ' + shown + ' of ' + busStopsData.length + ' in view');
   }
 
   // Bus stops refresh on every pan/zoom (viewport-filtered - which stops
-  // are in view actually changes). Youbike/metro don't viewport-filter
-  // (small enough datasets to always show all of them), so re-rendering on
-  // a pure pan would be wasted work - only the zoom level affects what they
-  // look like, so they only need to redraw on zoomend.
+  // are in view actually changes). Youbike hides/shows by zoom only (no
+  // viewport filter, small enough dataset to always show all of it), so it
+  // only needs to redraw on zoomend, not every pan. Metro doesn't change
+  // with zoom or pan at all now, so it only renders once, on load.
   map.on('moveend', refreshVisibleBusStops);
-  map.on('zoomend', function () { renderYoubike(); renderTransit(); });
+  map.on('zoomend', renderYoubike);
 
   loadStaticLayer('data/transit-stations.json', 'Transit').then(function (records) {
     transitData = records;
