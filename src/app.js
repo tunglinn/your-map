@@ -20,10 +20,16 @@
   var OSRM_PROFILE = 'driving';
 
   var map = L.map('map').setView(TAIPEI_CENTER, 15);
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-    subdomains: 'abcd',
-    maxZoom: 20,
-    attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
+  // ponytail: CARTO's free basemap tiles now require a signed-up API key
+  // (they locked this down after this was first wired up). OSM's own tile
+  // server needs no key at all and is the standard Leaflet-quickstart
+  // choice; their usage policy just asks that apps with real traffic
+  // self-host or use a paid provider instead of this - fine for a single
+  // personal user, revisit if that ever stops being true.
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    subdomains: 'abc',
+    maxZoom: 19,
+    attribution: '&copy; OpenStreetMap contributors',
   }).addTo(map);
 
   var poiLayer = L.layerGroup().addTo(map);

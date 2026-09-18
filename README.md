@@ -28,7 +28,7 @@ printed URL. Geolocation requires HTTPS or `localhost`.
 
 ## What's implemented
 
-- Worldwide basemap: raster tiles from [CARTO](https://carto.com/basemaps) via Leaflet (free, no key, no self-hosting, no WebGL).
+- Worldwide basemap: raster tiles from [OpenStreetMap's own tile server](https://tile.openstreetmap.org) via Leaflet (free, no key, no self-hosting, no WebGL). CARTO's free tiles used to work here too but now require a signed-up API key — switched off that.
 - Youbike stations (live, Taipei) — official city feed, fetched directly (CORS-enabled), refreshed on load.
 - POIs (amenity/shop) and bus stops via the public Overpass API, refreshed on map move, only above zoom 16 to keep marker count low on an older phone.
 - Rail/MRT stations (Taipei Metro + TRA) — always shown, no zoom gate, since it's a small fixed dataset (~150 stations) for the whole metro area, pulled from the same Overpass API (no GTFS parsing/hosting needed just to show station locations).
