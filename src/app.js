@@ -396,7 +396,6 @@
     renderLog();
   };
 
-  loadYoubike();
-  setInterval(loadYoubike, 60000); // live availability changes constantly; refetch every minute
+  loadYoubike(); // load once on open, not polled - battery over freshness
   loadTransitStations(); // static dataset (stations don't move) — load once
 })();
