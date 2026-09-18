@@ -204,8 +204,8 @@
     return L.divIcon({
       html: '<div class="marker-badge" style="background:' + bgColor + ';">' + emoji + '</div>',
       className: 'marker-badge-icon',
-      iconSize: [26, 26],
-      iconAnchor: [13, 13],
+      iconSize: [20, 20],
+      iconAnchor: [10, 10],
     });
   }
 
@@ -223,7 +223,7 @@
           // Badge color IS the availability signal (green/amber/red), same
           // thresholds as before - just moved from a plain dot to the icon's
           // background since emoji glyphs can't be recolored via CSS.
-          var color = s.available_rent_bikes >= 8 ? '#2b8a3e' : s.available_rent_bikes >= 3 ? '#f08c00' : '#d9480f';
+          var color = s.available_rent_bikes >= 8 ? '#81b98f' : s.available_rent_bikes >= 3 ? '#d9ae6e' : '#c98a7d';
           var marker = L.marker([s.latitude, s.longitude], { icon: makeBadgeIcon('🚲', color) }).addTo(youbikeLayer);
           marker.on('click', function () {
             handleMarkerTap({
@@ -354,8 +354,8 @@
       });
   }
 
-  var busStopIcon = makeBadgeIcon('🚏', '#0c8599');
-  var metroIcon = makeBadgeIcon('🚇', '#862e9c');
+  var busStopIcon = makeBadgeIcon('🚏', '#6fa3ac');
+  var metroIcon = makeBadgeIcon('🚇', '#9c7aa8');
 
   function renderStaticMarker(rec, layerGroup, icon) {
     var marker = L.marker([rec[1], rec[2]], { icon: icon }).addTo(layerGroup);
