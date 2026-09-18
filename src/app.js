@@ -47,6 +47,18 @@
     panel.classList.add('open');
   }
 
+  // Background layer fetches (Youbike/POI/transit) fail silently to
+  // console.warn otherwise — invisible on an iPhone with no attached
+  // console. Surface them on-screen so they're diagnosable on-device.
+  var toastEl = document.getElementById('toast');
+  var toastTimer = null;
+  function showToast(msg) {
+    toastEl.textContent = msg;
+    toastEl.style.display = 'block';
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { toastEl.style.display = 'none'; }, 5000);
+  }
+
   // ---------- IndexedDB: favorites + cached routes ----------
   var DB_NAME = 'your-map';
   var dbPromise = null;
@@ -109,7 +121,7 @@
           });
         });
       })
-      .catch(function (err) { console.warn('Youbike load failed', err); });
+      .catch(function (err) { console.warn('Youbike load failed', err); showToast('Youbike load failed: ' + err.message); });
   }
 
   // ---------- Overpass (shared by POIs/bus stops and rail/MRT stations) ----------
@@ -153,7 +165,7 @@
             }, [el.lat, el.lon]);
           });
         });
-      }).catch(function (err) { console.warn('POI refresh failed', err); });
+      }).catch(function (err) { console.warn('POI refresh failed', err); showToast('POI load failed: ' + err.message); });
     }, 600);
   }
   map.on('moveend', refreshPois);
@@ -179,7 +191,7 @@
           }, [el.lat, el.lon]);
         });
       });
-    }).catch(function (err) { console.warn('Transit load failed', err); });
+    }).catch(function (err) { console.warn('Transit load failed', err); showToast('Transit load failed: ' + err.message); });
   }
 
   // ---------- Routing ----------
@@ -297,5 +309,6 @@
   };
 
   loadYoubike();
-  loadTransitStations();
+  setInterval(loadYoubike, 60000); // live availability changes constantly; refetch every minute
+  loadTransitStations(); // static dataset (stations don't move) — load once
 })();
