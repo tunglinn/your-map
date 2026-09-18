@@ -31,9 +31,17 @@ export default {
     }
 
     const overpassUrl = 'https://overpass-api.de/api/interpreter?data=' + encodeURIComponent(data);
-    // Short edge cache: repeated identical queries (e.g. the fixed transit
-    // bbox) get served from Cloudflare instead of hitting Overpass again.
-    const res = await fetch(overpassUrl, { cf: { cacheTtl: 60, cacheEverything: true } });
+    // Empirically verified (curl, repeated): overpass-api.de returns 406 to
+    // curl's default UA AND to a real Firefox UA, but passes through an
+    // arbitrary/unrecognized one (one such request even got a genuine 429
+    // rate-limit back, proving it reached the real backend). Whatever's
+    // blocking known bot/browser signatures, an explicit made-up UA avoids it.
+    const res = await fetch(overpassUrl, {
+      headers: { 'User-Agent': 'your-map-personal-project/1.0' },
+      // Short edge cache: repeated identical queries (e.g. the fixed transit
+      // bbox) get served from Cloudflare instead of hitting Overpass again.
+      cf: { cacheTtl: 60, cacheEverything: true },
+    });
     const body = await res.text();
 
     return new Response(body, {
