@@ -168,7 +168,15 @@
 
   // ---------- Overpass (shared by POIs/bus stops and rail/MRT stations) ----------
   function runOverpass(q) {
-    return fetch(OVERPASS_URL, { method: 'POST', body: 'data=' + encodeURIComponent(q) })
+    // fetch() defaults a raw string body to Content-Type: text/plain, but
+    // Overpass parses "data=<query>" as a form field and needs
+    // application/x-www-form-urlencoded to see it at all - without this
+    // header the server can silently treat the query as empty.
+    return fetch(OVERPASS_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'data=' + encodeURIComponent(q),
+    })
       .then(function (res) {
         if (!res.ok) throw new Error('Overpass ' + res.status);
         return res.json();
@@ -222,9 +230,14 @@
 
   // ---------- Rail / MRT stations (always on — small dataset, whole metro area) ----------
   function loadTransitStations() {
+    // railway=station/halt covers most rail mapping; public_transport=station
+    // (scoped to subway=yes so it doesn't also pull in every bus station) is
+    // an alternate tagging style some Taipei MRT stations use instead of/
+    // alongside railway=station.
     var q = '[out:json][timeout:20];(' +
       'node["railway"="station"](' + TRANSIT_BBOX.join(',') + ');' +
       'node["railway"="halt"](' + TRANSIT_BBOX.join(',') + ');' +
+      'node["public_transport"="station"]["subway"="yes"](' + TRANSIT_BBOX.join(',') + ');' +
       ');out body 300;';
     console.log('Transit: querying bbox ' + TRANSIT_BBOX.join(','));
     runOverpass(q).then(function (data) {
