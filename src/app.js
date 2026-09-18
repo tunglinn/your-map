@@ -55,7 +55,7 @@
   // it. Routed through a Cloudflare Worker (worker/overpass-proxy.js) that
   // fetches Overpass server-to-server instead, where CORS doesn't apply.
   // PLACEHOLDER until deployed - see worker/overpass-proxy.js for how.
-  var OVERPASS_URL = 'https://your-map-overpass.PLACEHOLDER.workers.dev';
+  var OVERPASS_URL = 'https://overpass-proxy.tunglin.workers.dev';
   var POI_MIN_ZOOM = 16;
   // Fixed bbox covering the Taipei Metro + New Taipei service area (data we
   // gather is Taipei-scoped even though the basemap itself is worldwide).
