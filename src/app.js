@@ -179,7 +179,14 @@
   function runOverpass(q) {
     return fetch(OVERPASS_URL + '?data=' + encodeURIComponent(q))
       .then(function (res) {
-        if (!res.ok) throw new Error('Overpass ' + res.status);
+        if (!res.ok) {
+          // The Worker forwards Overpass's response body verbatim even on
+          // error - read it instead of discarding it, since a bare status
+          // code hasn't been enough to diagnose this.
+          return res.text().then(function (body) {
+            throw new Error('Overpass ' + res.status + ': ' + body.slice(0, 300));
+          });
+        }
         return res.json();
       });
   }
