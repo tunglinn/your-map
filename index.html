@@ -23,6 +23,16 @@
     background: #1a73e8; color: white; border: none; border-radius: 18px;
     padding: 10px 20px; font-size: 15px; font-weight: bold;
   }
+  #searchBar {
+    position: absolute; top: 10px; left: 10px; right: 60px; z-index: 1000;
+    background: white; border-radius: 10px; box-shadow: 0 1px 6px rgba(0,0,0,.3);
+    display: flex; align-items: center; padding: 4px 8px;
+  }
+  #searchBar.hidden { display: none; }
+  #searchBar input {
+    flex: 1; min-width: 0; border: none; outline: none; font-size: 15px; padding: 8px 4px;
+  }
+  #searchBar button { border: none; background: none; font-size: 18px; padding: 4px 6px; }
   #routeBar {
     position: absolute; top: 10px; left: 10px; right: 60px; z-index: 1000;
     background: white; border-radius: 10px; box-shadow: 0 1px 6px rgba(0,0,0,.3);
@@ -67,6 +77,11 @@
 <body>
 <div id="map"></div>
 <div id="toast"></div>
+
+<div id="searchBar">
+  <input id="searchInput" type="text" placeholder="Search for a place" enterkeyhint="search">
+  <button id="searchBtn" title="Search">🔍</button>
+</div>
 
 <div id="routeBar">
   <button id="cancelRouteBtn">✕</button>

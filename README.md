@@ -44,7 +44,7 @@ this anymore — see `data/README.md`, they're pre-baked static files now.)
 
 - Worldwide basemap: raster tiles from [OpenStreetMap's own tile server](https://tile.openstreetmap.org) via Leaflet (free, no key, no self-hosting, no WebGL). CARTO's free tiles used to work here too but now require a signed-up API key — switched off that.
 - Youbike stations (live, Taipei) — official city feed, fetched directly (CORS-enabled), refreshed on load.
-- POIs (amenity/shop) — live via Overpass (through the Worker proxy — see above), refreshed on map move, only above zoom 16 to keep marker count low on an older phone.
+- POI search (amenity/shop, name match) — on-demand only, via the search bar. Used to auto-query Overpass on every map pan/zoom; that hammered Overpass with a fresh request on every small pan and contributed to its flakiness, so it's now search-triggered instead.
 - Bus stops (~9,400 across Taipei + New Taipei) and rail/MRT stations (~180) — pre-baked static files (`data/*.json`, see `data/README.md`), fetched once on load, filtered/rendered from memory from then on. No live Overpass dependency for these two, so none of Overpass's flakiness affects them, and it's lighter on battery than a live query on every pan/zoom. Bus stops still only render above zoom 16 (rendering cost, not network cost, at this point); rail stations show always (small enough dataset).
 - Tap a marker → set as route start/end, or save to favorites (stored in IndexedDB, on-device only).
 - Routing via OSRM. **Currently points at the public demo server with the `driving` profile as a placeholder** (see `src/app.js`) — it gets routing working end-to-end today, but doesn't know about bike safety and isn't meant to stay pointed there.

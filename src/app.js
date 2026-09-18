@@ -57,7 +57,7 @@
   // filtered/rendered from memory from then on. Regenerate by hand
   // (see data/README.md) if a new station/stop needs adding.
   var OVERPASS_URL = 'https://overpass-proxy.tunglin.workers.dev';
-  var POI_MIN_ZOOM = 16;
+  var BUS_STOP_MIN_ZOOM = 16; // POI search has no zoom gate - it's on-demand, not automatic
   // ponytail: public OSRM demo, driving profile — placeholder to get routing
   // working end-to-end. No bike-safety weighting yet. Swap once the self-hosted
   // Taiwan OSRM (infra/setup-osrm.sh) is up: change these two constants only.
@@ -100,8 +100,13 @@
   var locatingStart = false;
 
   function updateRouteBar() {
-    if (!state.end) { routeBarEl.classList.remove('open'); return; }
+    if (!state.end) {
+      routeBarEl.classList.remove('open');
+      searchBarEl.classList.remove('hidden');
+      return;
+    }
     routeBarEl.classList.add('open');
+    searchBarEl.classList.add('hidden');
     endLabelEl.textContent = state.end.name;
     if (state.start) {
       startLabelEl.textContent = state.start.name;
@@ -236,44 +241,54 @@
       });
   }
 
-  // ---------- POIs (amenity/shop — live, viewport-scoped, only when zoomed in) ----------
-  var poiTimer = null;
-  function refreshPois() {
-    clearTimeout(poiTimer);
-    poiTimer = setTimeout(function () {
-      if (map.getZoom() < POI_MIN_ZOOM) {
-        poiLayer.clearLayers();
-        console.log('POI refresh: skipped, zoom ' + map.getZoom() + ' < min ' + POI_MIN_ZOOM);
-        return;
-      }
-      var b = map.getBounds();
-      var bbox = [b.getSouth(), b.getWest(), b.getNorth(), b.getEast()];
-      var q = '[out:json][timeout:15];(' +
-        'node["amenity"](' + bbox.join(',') + ');' +
-        'node["shop"](' + bbox.join(',') + ');' +
-        ');out body 150;';
-      console.log('POI refresh: querying bbox ' + bbox.join(','));
-      runOverpass(q).then(function (data) {
-        poiLayer.clearLayers();
-        var shown = 0;
-        data.elements.forEach(function (el) {
-          if (!el.tags || !el.tags.name) return;
-          shown++;
-          var marker = L.circleMarker([el.lat, el.lon], {
-            radius: 4, color: '#fff', weight: 1, fillColor: '#1971c2', fillOpacity: 0.9,
-          }).addTo(poiLayer);
-          marker.on('click', function () {
-            handleMarkerTap({
-              id: 'poi-' + el.id,
-              name: el.tags.name,
-              extra: el.tags.amenity || el.tags.shop || 'poi',
-            }, [el.lat, el.lon]);
-          });
-        });
-        console.log('POI refresh: showing ' + shown + ' of ' + data.elements.length + ' returned elements (rest had no name tag)');
-      }).catch(function (err) { console.warn('POI refresh failed', err); showToast('POI load failed: ' + err.message); });
-    }, 600);
+  // ---------- POI search (on-demand only) ----------
+  // Used to auto-query Overpass on every map pan/zoom at high enough zoom -
+  // meant well (keep marker count low) but still hammered Overpass with a
+  // fresh request on every small pan, which didn't help its reliability.
+  // Now Overpass is only hit when the user actually searches for something.
+  function escapeOverpassRegex(s) {
+    return s.replace(/["\\.*+?^${}()|[\]]/g, '\\$&');
   }
+
+  function runPoiSearch(query) {
+    var trimmed = query.trim();
+    if (!trimmed) return;
+    var safe = escapeOverpassRegex(trimmed);
+    var b = map.getBounds();
+    var bbox = [b.getSouth(), b.getWest(), b.getNorth(), b.getEast()];
+    var q = '[out:json][timeout:15];(' +
+      'node["amenity"]["name"~"' + safe + '",i](' + bbox.join(',') + ');' +
+      'node["shop"]["name"~"' + safe + '",i](' + bbox.join(',') + ');' +
+      ');out body 30;';
+    console.log('POI search: "' + trimmed + '" in current view');
+    runOverpass(q).then(function (data) {
+      poiLayer.clearLayers();
+      var shown = 0;
+      data.elements.forEach(function (el) {
+        if (!el.tags || !el.tags.name) return;
+        shown++;
+        var marker = L.circleMarker([el.lat, el.lon], {
+          radius: 5, color: '#fff', weight: 1, fillColor: '#1971c2', fillOpacity: 0.9,
+        }).addTo(poiLayer);
+        marker.on('click', function () {
+          handleMarkerTap({
+            id: 'poi-' + el.id,
+            name: el.tags.name,
+            extra: el.tags.amenity || el.tags.shop || 'poi',
+          }, [el.lat, el.lon]);
+        });
+      });
+      console.log('POI search: ' + shown + ' result(s) for "' + trimmed + '"');
+      showToast(shown === 0 ? 'No results for "' + trimmed + '"' : shown + ' result' + (shown === 1 ? '' : 's') + ' found');
+    }).catch(function (err) { console.warn('POI search failed', err); showToast('Search failed: ' + err.message); });
+  }
+
+  var searchBarEl = document.getElementById('searchBar');
+  var searchInputEl = document.getElementById('searchInput');
+  document.getElementById('searchBtn').onclick = function () { runPoiSearch(searchInputEl.value); };
+  searchInputEl.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') runPoiSearch(searchInputEl.value);
+  });
 
   // ---------- Rail/MRT stations + bus stops: pre-baked static data (data/README.md) ----------
   // Compact array format to keep the file small: [id, lat, lon, name, extraLabel].
@@ -303,7 +318,7 @@
 
   var busStopsData = [];
   function refreshVisibleBusStops() {
-    if (map.getZoom() < POI_MIN_ZOOM) { busLayer.clearLayers(); return; }
+    if (map.getZoom() < BUS_STOP_MIN_ZOOM) { busLayer.clearLayers(); return; }
     var b = map.getBounds();
     var south = b.getSouth(), north = b.getNorth(), west = b.getWest(), east = b.getEast();
     busLayer.clearLayers();
@@ -317,10 +332,9 @@
     console.log('Bus stops: showing ' + shown + ' of ' + busStopsData.length + ' in view');
   }
 
-  map.on('moveend', function () {
-    refreshPois();
-    refreshVisibleBusStops(); // local array filter, no network - cheap enough to skip debouncing
-  });
+  // Bus stops still refresh on pan/zoom - it's a local array filter, no
+  // network call, so it doesn't contribute to the Overpass load problem.
+  map.on('moveend', refreshVisibleBusStops);
 
   loadStaticLayer('data/transit-stations.json', 'Transit').then(function (records) {
     records.forEach(function (rec) { renderStaticMarker(rec, transitLayer, 5, '#862e9c'); });
