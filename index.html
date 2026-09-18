@@ -26,25 +26,41 @@
   }
   .fav-item { padding: 4px 0; border-bottom: 1px solid #eee; }
   #closePanel { position: absolute; top: 4px; right: 10px; border: none; background: none; font-size: 18px; }
-  #toast {
-    position: absolute; top: 10px; left: 50%; margin-left: -140px; width: 280px;
-    z-index: 1000; background: rgba(0,0,0,.8); color: white; padding: 8px 12px;
-    border-radius: 8px; font-size: 13px; text-align: center; display: none;
+  #debugConsole {
+    position: absolute; left: 0; right: 0; bottom: 0; z-index: 1000;
+    background: white; border-radius: 12px 12px 0 0; box-shadow: 0 -2px 10px rgba(0,0,0,.15);
+    height: 50%; padding: 8px 10px; display: none;
+  }
+  #debugConsole.open { display: block; }
+  #debugConsoleHeader { font: bold 13px -apple-system, sans-serif; margin-bottom: 6px; }
+  #debugConsoleHeader button { font-size: 13px; padding: 4px 8px; margin-left: 6px; }
+  #debugConsoleText {
+    width: 100%; height: calc(100% - 30px); box-sizing: border-box;
+    font: 11px/1.4 Menlo, monospace; border: 1px solid #ddd; padding: 6px; resize: none;
   }
 </style>
 </head>
 <body>
 <div id="map"></div>
-<div id="toast"></div>
 
 <div id="toolbar">
   <button id="locateBtn" title="My location">📍</button>
   <button id="favBtn" title="Favorites">⭐</button>
+  <button id="consoleBtn" title="Debug console">🐞</button>
 </div>
 
 <div id="panel">
   <button id="closePanel">✕</button>
   <div id="panelContent"></div>
+</div>
+
+<div id="debugConsole">
+  <div id="debugConsoleHeader">
+    Console
+    <button id="debugConsoleClear">Clear</button>
+    <button id="debugConsoleClose">✕</button>
+  </div>
+  <textarea id="debugConsoleText" readonly></textarea>
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>

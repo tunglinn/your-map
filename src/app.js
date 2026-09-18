@@ -6,6 +6,42 @@
 (function () {
   'use strict';
 
+  // ---------- Debug console: mirrors console.log/warn/error + uncaught errors
+  // into an on-screen panel. iOS 12 Safari has no easy remote-inspector loop
+  // (needs a Mac + cable), so this is how bugs get seen on-device at all. ----------
+  var LOG_MAX_LINES = 300;
+  var logLines = [];
+  function renderLog() {
+    var el = document.getElementById('debugConsoleText');
+    if (el) el.value = logLines.join('\n');
+  }
+  function pushLog(level, args) {
+    var parts = [];
+    for (var i = 0; i < args.length; i++) {
+      var a = args[i];
+      if (typeof a === 'string') { parts.push(a); continue; }
+      try { parts.push(JSON.stringify(a)); } catch (e) { parts.push(String(a)); }
+    }
+    var stamp = new Date().toISOString().substr(11, 8);
+    logLines.push('[' + stamp + '] ' + level + ': ' + parts.join(' '));
+    if (logLines.length > LOG_MAX_LINES) logLines.shift();
+    renderLog();
+  }
+  ['log', 'warn', 'error'].forEach(function (level) {
+    var original = console[level];
+    console[level] = function () {
+      pushLog(level, arguments);
+      original.apply(console, arguments);
+    };
+  });
+  window.onerror = function (message, url, line, col) {
+    pushLog('error', [message + ' (' + url + ':' + line + ':' + col + ')']);
+  };
+  window.addEventListener('unhandledrejection', function (e) {
+    var reason = e.reason && e.reason.message ? e.reason.message : e.reason;
+    pushLog('error', ['Unhandled promise rejection: ' + reason]);
+  });
+
   var TAIPEI_CENTER = [25.0330, 121.5654]; // Leaflet uses [lat, lon]
   var YOUBIKE_URL = 'https://tcgbusfs.blob.core.windows.net/dotapp/youbike/v2/youbike_immediate.json';
   var OVERPASS_URL = 'https://overpass-api.de/api/interpreter';
@@ -45,18 +81,6 @@
   function showPanel(html) {
     panelContent.innerHTML = html;
     panel.classList.add('open');
-  }
-
-  // Background layer fetches (Youbike/POI/transit) fail silently to
-  // console.warn otherwise — invisible on an iPhone with no attached
-  // console. Surface them on-screen so they're diagnosable on-device.
-  var toastEl = document.getElementById('toast');
-  var toastTimer = null;
-  function showToast(msg) {
-    toastEl.textContent = msg;
-    toastEl.style.display = 'block';
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(function () { toastEl.style.display = 'none'; }, 5000);
   }
 
   // ---------- IndexedDB: favorites + cached routes ----------
@@ -102,12 +126,15 @@
 
   // ---------- Youbike ----------
   function loadYoubike() {
+    console.log('Youbike: fetching ' + YOUBIKE_URL);
     fetch(YOUBIKE_URL)
       .then(function (res) { return res.json(); })
       .then(function (stations) {
         youbikeLayer.clearLayers();
+        var shown = 0;
         stations.forEach(function (s) {
           if (s.act !== '1') return;
+          shown++;
           var color = s.available_rent_bikes >= 8 ? '#2b8a3e' : s.available_rent_bikes >= 3 ? '#f08c00' : '#d9480f';
           var marker = L.circleMarker([s.latitude, s.longitude], {
             radius: 5, color: '#fff', weight: 1, fillColor: color, fillOpacity: 0.9,
@@ -120,8 +147,9 @@
             }, [s.latitude, s.longitude]);
           });
         });
+        console.log('Youbike: loaded ' + shown + ' active stations (of ' + stations.length + ' total)');
       })
-      .catch(function (err) { console.warn('Youbike load failed', err); showToast('Youbike load failed: ' + err.message); });
+      .catch(function (err) { console.warn('Youbike load failed', err); });
   }
 
   // ---------- Overpass (shared by POIs/bus stops and rail/MRT stations) ----------
@@ -139,7 +167,11 @@
   function refreshPois() {
     clearTimeout(poiTimer);
     poiTimer = setTimeout(function () {
-      if (map.getZoom() < POI_MIN_ZOOM) { poiLayer.clearLayers(); return; }
+      if (map.getZoom() < POI_MIN_ZOOM) {
+        poiLayer.clearLayers();
+        console.log('POI refresh: skipped, zoom ' + map.getZoom() + ' < min ' + POI_MIN_ZOOM);
+        return;
+      }
       var b = map.getBounds();
       var bbox = [b.getSouth(), b.getWest(), b.getNorth(), b.getEast()];
       var q = '[out:json][timeout:15];(' +
@@ -147,10 +179,13 @@
         'node["shop"](' + bbox.join(',') + ');' +
         'node["highway"="bus_stop"](' + bbox.join(',') + ');' +
         ');out body 150;';
+      console.log('POI refresh: querying bbox ' + bbox.join(','));
       runOverpass(q).then(function (data) {
         poiLayer.clearLayers();
+        var shown = 0;
         data.elements.forEach(function (el) {
           if (!el.tags || !el.tags.name) return;
+          shown++;
           var isBusStop = el.tags.highway === 'bus_stop';
           var marker = L.circleMarker([el.lat, el.lon], {
             radius: 4, color: '#fff', weight: 1,
@@ -165,7 +200,8 @@
             }, [el.lat, el.lon]);
           });
         });
-      }).catch(function (err) { console.warn('POI refresh failed', err); showToast('POI load failed: ' + err.message); });
+        console.log('POI refresh: showing ' + shown + ' of ' + data.elements.length + ' returned elements (rest had no name tag)');
+      }).catch(function (err) { console.warn('POI refresh failed', err); });
     }, 600);
   }
   map.on('moveend', refreshPois);
@@ -176,10 +212,13 @@
       'node["railway"="station"](' + TRANSIT_BBOX.join(',') + ');' +
       'node["railway"="halt"](' + TRANSIT_BBOX.join(',') + ');' +
       ');out body 300;';
+    console.log('Transit: querying bbox ' + TRANSIT_BBOX.join(','));
     runOverpass(q).then(function (data) {
       transitLayer.clearLayers();
+      var shown = 0;
       data.elements.forEach(function (el) {
         if (!el.tags || !el.tags.name) return;
+        shown++;
         var marker = L.circleMarker([el.lat, el.lon], {
           radius: 5, color: '#fff', weight: 1, fillColor: '#862e9c', fillOpacity: 0.9,
         }).addTo(transitLayer);
@@ -191,7 +230,8 @@
           }, [el.lat, el.lon]);
         });
       });
-    }).catch(function (err) { console.warn('Transit load failed', err); showToast('Transit load failed: ' + err.message); });
+      console.log('Transit: showing ' + shown + ' of ' + data.elements.length + ' returned elements (rest had no name tag)');
+    }).catch(function (err) { console.warn('Transit load failed', err); });
   }
 
   // ---------- Routing ----------
@@ -308,7 +348,19 @@
     });
   };
 
+  var debugConsole = document.getElementById('debugConsole');
+  document.getElementById('consoleBtn').onclick = function () {
+    debugConsole.classList.toggle('open');
+    renderLog();
+  };
+  document.getElementById('debugConsoleClose').onclick = function () {
+    debugConsole.classList.remove('open');
+  };
+  document.getElementById('debugConsoleClear').onclick = function () {
+    logLines = [];
+    renderLog();
+  };
+
   loadYoubike();
-  setInterval(loadYoubike, 60000); // live availability changes constantly; refetch every minute
-  loadTransitStations(); // static dataset (stations don't move) — load once
+  loadTransitStations();
 })();
