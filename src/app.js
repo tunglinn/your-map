@@ -197,6 +197,18 @@
       .then(function (rec) { return rec ? rec.route : null; });
   }
 
+  // Emoji-on-a-colored-circle marker, same reasoning as the search pin: no
+  // image asset request, no risk of a default icon's path failing to
+  // resolve. One icon instance can be reused across many L.marker calls.
+  function makeBadgeIcon(emoji, bgColor) {
+    return L.divIcon({
+      html: '<div class="marker-badge" style="background:' + bgColor + ';">' + emoji + '</div>',
+      className: 'marker-badge-icon',
+      iconSize: [26, 26],
+      iconAnchor: [13, 13],
+    });
+  }
+
   // ---------- Youbike ----------
   function loadYoubike() {
     console.log('Youbike: fetching ' + YOUBIKE_URL);
@@ -208,10 +220,11 @@
         stations.forEach(function (s) {
           if (s.act !== '1') return;
           shown++;
+          // Badge color IS the availability signal (green/amber/red), same
+          // thresholds as before - just moved from a plain dot to the icon's
+          // background since emoji glyphs can't be recolored via CSS.
           var color = s.available_rent_bikes >= 8 ? '#2b8a3e' : s.available_rent_bikes >= 3 ? '#f08c00' : '#d9480f';
-          var marker = L.circleMarker([s.latitude, s.longitude], {
-            radius: 5, color: '#fff', weight: 1, fillColor: color, fillOpacity: 0.9,
-          }).addTo(youbikeLayer);
+          var marker = L.marker([s.latitude, s.longitude], { icon: makeBadgeIcon('🚲', color) }).addTo(youbikeLayer);
           marker.on('click', function () {
             handleMarkerTap({
               id: 'youbike-' + s.sno,
@@ -341,10 +354,11 @@
       });
   }
 
-  function renderStaticMarker(rec, layerGroup, markerRadius, color) {
-    var marker = L.circleMarker([rec[1], rec[2]], {
-      radius: markerRadius, color: '#fff', weight: 1, fillColor: color, fillOpacity: 0.9,
-    }).addTo(layerGroup);
+  var busStopIcon = makeBadgeIcon('🚏', '#0c8599');
+  var metroIcon = makeBadgeIcon('🚇', '#862e9c');
+
+  function renderStaticMarker(rec, layerGroup, icon) {
+    var marker = L.marker([rec[1], rec[2]], { icon: icon }).addTo(layerGroup);
     marker.on('click', function () {
       handleMarkerTap({ id: rec[0], name: rec[3], extra: rec[4] }, [rec[1], rec[2]]);
     });
@@ -361,7 +375,7 @@
       var lat = rec[1], lon = rec[2];
       if (lat < south || lat > north || lon < west || lon > east) return;
       shown++;
-      renderStaticMarker(rec, busLayer, 4, '#0c8599');
+      renderStaticMarker(rec, busLayer, busStopIcon);
     });
     console.log('Bus stops: showing ' + shown + ' of ' + busStopsData.length + ' in view');
   }
@@ -371,7 +385,7 @@
   map.on('moveend', refreshVisibleBusStops);
 
   loadStaticLayer('data/transit-stations.json', 'Transit').then(function (records) {
-    records.forEach(function (rec) { renderStaticMarker(rec, transitLayer, 5, '#862e9c'); });
+    records.forEach(function (rec) { renderStaticMarker(rec, transitLayer, metroIcon); });
   });
   loadStaticLayer('data/bus-stops.json', 'Bus stops').then(function (records) {
     busStopsData = records;
