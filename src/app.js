@@ -49,17 +49,15 @@
 
   var TAIPEI_CENTER = [25.0330, 121.5654]; // Leaflet uses [lat, lon]
   var YOUBIKE_URL = 'https://tcgbusfs.blob.core.windows.net/dotapp/youbike/v2/youbike_immediate.json';
-  // ponytail: calling overpass-api.de directly from the browser got HTTP 406
-  // with no CORS header (confirmed via real browser devtools, not just this
-  // project's sandbox) - likely origin-based blocking somewhere in front of
-  // it. Routed through a Cloudflare Worker (worker/overpass-proxy.js) that
-  // fetches Overpass server-to-server instead, where CORS doesn't apply.
-  // PLACEHOLDER until deployed - see worker/overpass-proxy.js for how.
+  // Overpass turned out to be intermittently flaky even after fixing the
+  // User-Agent block (see git log) - fine for a live, viewport-scoped query
+  // like amenity/shop POIs below, but rail stations and bus stops barely
+  // change (new station maybe once a year), so those are pre-baked into
+  // data/*.json instead: one static fetch, zero ongoing Overpass dependency,
+  // filtered/rendered from memory from then on. Regenerate by hand
+  // (see data/README.md) if a new station/stop needs adding.
   var OVERPASS_URL = 'https://overpass-proxy.tunglin.workers.dev';
   var POI_MIN_ZOOM = 16;
-  // Fixed bbox covering the Taipei Metro + New Taipei service area (data we
-  // gather is Taipei-scoped even though the basemap itself is worldwide).
-  var TRANSIT_BBOX = [24.95, 121.35, 25.25, 121.75];
   // ponytail: public OSRM demo, driving profile — placeholder to get routing
   // working end-to-end. No bike-safety weighting yet. Swap once the self-hosted
   // Taiwan OSRM (infra/setup-osrm.sh) is up: change these two constants only.
@@ -82,6 +80,7 @@
   var poiLayer = L.layerGroup().addTo(map);
   var youbikeLayer = L.layerGroup().addTo(map);
   var transitLayer = L.layerGroup().addTo(map);
+  var busLayer = L.layerGroup().addTo(map);
   var routeLayer = null;
 
   var panel = document.getElementById('panel');
@@ -191,8 +190,7 @@
       });
   }
 
-  // ---------- POIs + bus stops (viewport-scoped, only when zoomed in) ----------
-  var POI_COLORS = { bus_stop: '#0c8599', default: '#1971c2' };
+  // ---------- POIs (amenity/shop — live, viewport-scoped, only when zoomed in) ----------
   var poiTimer = null;
   function refreshPois() {
     clearTimeout(poiTimer);
@@ -207,7 +205,6 @@
       var q = '[out:json][timeout:15];(' +
         'node["amenity"](' + bbox.join(',') + ');' +
         'node["shop"](' + bbox.join(',') + ');' +
-        'node["highway"="bus_stop"](' + bbox.join(',') + ');' +
         ');out body 150;';
       console.log('POI refresh: querying bbox ' + bbox.join(','));
       runOverpass(q).then(function (data) {
@@ -216,17 +213,14 @@
         data.elements.forEach(function (el) {
           if (!el.tags || !el.tags.name) return;
           shown++;
-          var isBusStop = el.tags.highway === 'bus_stop';
           var marker = L.circleMarker([el.lat, el.lon], {
-            radius: 4, color: '#fff', weight: 1,
-            fillColor: isBusStop ? POI_COLORS.bus_stop : POI_COLORS.default,
-            fillOpacity: 0.9,
+            radius: 4, color: '#fff', weight: 1, fillColor: '#1971c2', fillOpacity: 0.9,
           }).addTo(poiLayer);
           marker.on('click', function () {
             selectFeature({
               id: 'poi-' + el.id,
               name: el.tags.name,
-              extra: isBusStop ? 'Bus stop' : (el.tags.amenity || el.tags.shop || 'poi'),
+              extra: el.tags.amenity || el.tags.shop || 'poi',
             }, [el.lat, el.lon]);
           });
         });
@@ -234,40 +228,61 @@
       }).catch(function (err) { console.warn('POI refresh failed', err); showToast('POI load failed: ' + err.message); });
     }, 600);
   }
-  map.on('moveend', refreshPois);
 
-  // ---------- Rail / MRT stations (always on — small dataset, whole metro area) ----------
-  function loadTransitStations() {
-    // railway=station/halt covers most rail mapping; public_transport=station
-    // (scoped to subway=yes so it doesn't also pull in every bus station) is
-    // an alternate tagging style some Taipei MRT stations use instead of/
-    // alongside railway=station.
-    var q = '[out:json][timeout:20];(' +
-      'node["railway"="station"](' + TRANSIT_BBOX.join(',') + ');' +
-      'node["railway"="halt"](' + TRANSIT_BBOX.join(',') + ');' +
-      'node["public_transport"="station"]["subway"="yes"](' + TRANSIT_BBOX.join(',') + ');' +
-      ');out body 300;';
-    console.log('Transit: querying bbox ' + TRANSIT_BBOX.join(','));
-    runOverpass(q).then(function (data) {
-      transitLayer.clearLayers();
-      var shown = 0;
-      data.elements.forEach(function (el) {
-        if (!el.tags || !el.tags.name) return;
-        shown++;
-        var marker = L.circleMarker([el.lat, el.lon], {
-          radius: 5, color: '#fff', weight: 1, fillColor: '#862e9c', fillOpacity: 0.9,
-        }).addTo(transitLayer);
-        marker.on('click', function () {
-          selectFeature({
-            id: 'rail-' + el.id,
-            name: el.tags.name,
-            extra: el.tags.network || (el.tags.station === 'subway' ? 'MRT station' : 'Rail station'),
-          }, [el.lat, el.lon]);
-        });
+  // ---------- Rail/MRT stations + bus stops: pre-baked static data (data/README.md) ----------
+  // Compact array format to keep the file small: [id, lat, lon, name, extraLabel].
+  function loadStaticLayer(url, label) {
+    console.log('Static layer (' + label + '): fetching ' + url);
+    return fetch(url)
+      .then(function (res) { return res.json(); })
+      .then(function (records) {
+        console.log('Static layer (' + label + '): loaded ' + records.length + ' records');
+        return records;
+      })
+      .catch(function (err) {
+        console.warn(label + ' load failed', err);
+        showToast(label + ' load failed: ' + err.message);
+        return [];
       });
-      console.log('Transit: showing ' + shown + ' of ' + data.elements.length + ' returned elements (rest had no name tag)');
-    }).catch(function (err) { console.warn('Transit load failed', err); showToast('Transit load failed: ' + err.message); });
   }
+
+  function renderStaticMarker(rec, layerGroup, markerRadius, color) {
+    var marker = L.circleMarker([rec[1], rec[2]], {
+      radius: markerRadius, color: '#fff', weight: 1, fillColor: color, fillOpacity: 0.9,
+    }).addTo(layerGroup);
+    marker.on('click', function () {
+      selectFeature({ id: rec[0], name: rec[3], extra: rec[4] }, [rec[1], rec[2]]);
+    });
+  }
+
+  var busStopsData = [];
+  function refreshVisibleBusStops() {
+    if (map.getZoom() < POI_MIN_ZOOM) { busLayer.clearLayers(); return; }
+    var b = map.getBounds();
+    var south = b.getSouth(), north = b.getNorth(), west = b.getWest(), east = b.getEast();
+    busLayer.clearLayers();
+    var shown = 0;
+    busStopsData.forEach(function (rec) {
+      var lat = rec[1], lon = rec[2];
+      if (lat < south || lat > north || lon < west || lon > east) return;
+      shown++;
+      renderStaticMarker(rec, busLayer, 4, '#0c8599');
+    });
+    console.log('Bus stops: showing ' + shown + ' of ' + busStopsData.length + ' in view');
+  }
+
+  map.on('moveend', function () {
+    refreshPois();
+    refreshVisibleBusStops(); // local array filter, no network - cheap enough to skip debouncing
+  });
+
+  loadStaticLayer('data/transit-stations.json', 'Transit').then(function (records) {
+    records.forEach(function (rec) { renderStaticMarker(rec, transitLayer, 5, '#862e9c'); });
+  });
+  loadStaticLayer('data/bus-stops.json', 'Bus stops').then(function (records) {
+    busStopsData = records;
+    refreshVisibleBusStops();
+  });
 
   // ---------- Routing ----------
   function getRoute(fromLatLng, toLatLng) {
@@ -397,5 +412,4 @@
   };
 
   loadYoubike(); // load once on open, not polled - battery over freshness
-  loadTransitStations(); // static dataset (stations don't move) — load once
 })();

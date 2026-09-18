@@ -26,12 +26,13 @@ printed URL. Geolocation requires HTTPS or `localhost`.
 4. Deploy. Every push to `main` auto-deploys — no wrangler/CLI login needed.
 5. On your iPhone, open the Pages URL in Safari → Share → **Add to Home Screen**.
 
-## Deploy the Overpass proxy Worker (needed for POIs/bus stops/transit to work)
+## Deploy the Overpass proxy Worker (needed for POI search to work)
 
 Calling `overpass-api.de` directly from the browser gets blocked (HTTP 406,
 no CORS header — confirmed via real browser devtools). `worker/overpass-proxy.js`
 fetches Overpass server-to-server instead, where CORS doesn't apply, and adds
-a short edge cache along the way.
+a short edge cache along the way. (Rail stations and bus stops don't need
+this anymore — see `data/README.md`, they're pre-baked static files now.)
 
 1. Cloudflare dashboard → Workers & Pages → Create → **Worker**.
 2. Open the Quick Edit code editor, replace its contents with
@@ -43,8 +44,8 @@ a short edge cache along the way.
 
 - Worldwide basemap: raster tiles from [OpenStreetMap's own tile server](https://tile.openstreetmap.org) via Leaflet (free, no key, no self-hosting, no WebGL). CARTO's free tiles used to work here too but now require a signed-up API key — switched off that.
 - Youbike stations (live, Taipei) — official city feed, fetched directly (CORS-enabled), refreshed on load.
-- POIs (amenity/shop) and bus stops via Overpass (through the Worker proxy — see above), refreshed on map move, only above zoom 16 to keep marker count low on an older phone.
-- Rail/MRT stations (Taipei Metro + TRA) — always shown, no zoom gate, since it's a small fixed dataset (~150 stations) for the whole metro area, pulled from the same Overpass proxy (no GTFS parsing/hosting needed just to show station locations).
+- POIs (amenity/shop) — live via Overpass (through the Worker proxy — see above), refreshed on map move, only above zoom 16 to keep marker count low on an older phone.
+- Bus stops (~9,400 across Taipei + New Taipei) and rail/MRT stations (~180) — pre-baked static files (`data/*.json`, see `data/README.md`), fetched once on load, filtered/rendered from memory from then on. No live Overpass dependency for these two, so none of Overpass's flakiness affects them, and it's lighter on battery than a live query on every pan/zoom. Bus stops still only render above zoom 16 (rendering cost, not network cost, at this point); rail stations show always (small enough dataset).
 - Tap a marker → set as route start/end, or save to favorites (stored in IndexedDB, on-device only).
 - Routing via OSRM. **Currently points at the public demo server with the `driving` profile as a placeholder** (see `src/app.js`) — it gets routing working end-to-end today, but doesn't know about bike safety and isn't meant to stay pointed there.
 - Favorite-to-favorite routes are cached in IndexedDB after the first lookup, so navigating between two saved favorites works offline afterward.
